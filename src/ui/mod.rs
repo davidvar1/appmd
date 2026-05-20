@@ -1,0 +1,51 @@
+//! UI components for Ferrite
+//!
+//! This module contains reusable UI widgets and components.
+//!
+mod about;
+mod backlinks_panel;
+mod command_palette;
+mod dialogs;
+mod docked_sidebar;
+mod file_tree;
+pub mod format_toolbar;
+mod frontmatter_panel;
+mod icons;
+mod nav_buttons;
+mod outline_panel;
+pub mod phosphor_icons;
+mod pipeline;
+mod productivity_panel;
+mod quick_switcher;
+mod ribbon;
+mod search;
+mod settings;
+mod terminal_panel;
+mod view_segment;
+mod welcome;
+mod window;
+
+pub use about::AboutPanel;
+pub use backlinks_panel::{BacklinksPanel, BacklinksPanelOutput};
+pub use command_palette::CommandPalette;
+pub use dialogs::{FileOperationDialog, FileOperationResult, GoToLineDialog, GoToLineResult};
+pub use file_tree::{FileTreeContextAction, FileTreePanel};
+pub use format_toolbar::{side_panel_toggle_strip, FormatToolbar};
+pub use frontmatter_panel::FrontmatterPanel;
+pub use icons::{get_app_icon, load_app_logo_texture};
+pub use nav_buttons::{render_nav_buttons, NavAction};
+pub use outline_panel::{OutlinePanel, OutlinePanelTab};
+pub use pipeline::{PipelinePanel, TabPipelineState};
+pub use productivity_panel::{AutoSave, PomodoroTimer, ProductivityPanel, Task};
+pub use quick_switcher::QuickSwitcher;
+pub use ribbon::{Ribbon, RibbonAction};
+pub use search::{SearchNavigationTarget, SearchPanel};
+pub use settings::SettingsPanel;
+pub use terminal_panel::{FloatingWindow, TerminalPanel, TerminalPanelState};
+pub use view_segment::{TitleBarButton, ViewModeSegment, ViewSegmentAction};
+pub use welcome::WelcomePanel;
+pub use window::{
+    center_panel_in_viewport, constrain_rect_to_viewport, consume_clicks_in_resize_zones,
+    handle_window_resize, is_in_resize_zone, search_panel_constraints, PanelConstraints,
+    WindowResizeState,
+};
