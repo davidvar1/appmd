@@ -56,6 +56,7 @@ mod update;
 mod vcs;
 #[cfg(feature = "async-workers")]
 mod workers;
+mod store;
 mod workspaces;
 
 use app::FerriteApp;
