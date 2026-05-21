@@ -11,6 +11,9 @@ pub struct BlockEditorOutput {
     pub request_new_block_after: Option<String>,
     pub request_delete: bool,
     pub request_focus: Option<String>,
+    pub show_slash_menu: bool,
+    pub hovered: bool,
+    pub drag_started: bool,
 }
 
 pub fn render_block(
@@ -22,6 +25,34 @@ pub fn render_block(
     is_focused: bool,
     is_dark: bool,
 ) -> BlockEditorOutput {
+    fn render_drag_handle(ui: &mut egui::Ui, is_dark: bool, index: usize) -> bool {
+        let drag_color = if is_dark {
+            egui::Color32::from_rgb(100, 100, 120)
+        } else {
+            egui::Color32::from_rgb(180, 180, 200)
+        };
+        let (rect, response) = ui.allocate_exact_size(
+            egui::vec2(16.0, 28.0),
+            egui::Sense::click_and_drag(),
+        );
+        let dots = "\u{200B}:\u{200B}:\u{200B}";
+        ui.painter().text(
+            rect.center(),
+            egui::Align2::CENTER_CENTER,
+            dots,
+            egui::FontId::proportional(14.0),
+            drag_color,
+        );
+        if response.hovered() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+        }
+        if response.dragged() {
+            egui::DragAndDrop::set_payload(ui.ctx(), index);
+            true
+        } else {
+            false
+        }
+    }
     let block_id = block.id.clone();
     let mut output = BlockEditorOutput {
         block_id: block_id.clone(),
@@ -31,6 +62,9 @@ pub fn render_block(
         request_new_block_after: None,
         request_delete: false,
         request_focus: None,
+        show_slash_menu: false,
+        hovered: false,
+        drag_started: false,
     };
 
     let accent = if is_dark {
@@ -45,73 +79,19 @@ pub fn render_block(
         egui::Color32::from_rgb(245, 245, 250)
     };
 
-    egui::Frame::none()
+    let frame_response = egui::Frame::none()
         .inner_margin(egui::Margin::symmetric(4, 2))
         .show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.set_min_height(28.0);
 
+                if *block_type != BlockType::Divider {
+                    if render_drag_handle(ui, is_dark, index) {
+                        output.drag_started = true;
+                    }
+                }
+
                 match block_type {
-                    BlockType::Heading1 => {
-                        let response = ui.add_sized(
-                            ui.available_size(),
-                            egui::TextEdit::multiline(text)
-                                .font(egui::TextStyle::Heading)
-                                .desired_width(f32::INFINITY)
-                                .text_color(if is_dark {
-                                    egui::Color32::from_rgb(220, 220, 255)
-                                } else {
-                                    egui::Color32::from_rgb(30, 30, 80)
-                                })
-                                .id(egui::Id::new("block_edit").with(&block_id)),
-                        );
-                        if response.changed() {
-                            output.content_changed = Some(text.clone());
-                        }
-                        if response.lost_focus() && text.is_empty() {
-                            output.request_delete = true;
-                        }
-                    }
-                    BlockType::Heading2 => {
-                        let response = ui.add_sized(
-                            ui.available_size(),
-                            egui::TextEdit::multiline(text)
-                                .font(egui::TextStyle::Name("heading".into()))
-                                .desired_width(f32::INFINITY)
-                                .text_color(if is_dark {
-                                    egui::Color32::from_rgb(200, 200, 240)
-                                } else {
-                                    egui::Color32::from_rgb(40, 40, 100)
-                                })
-                                .id(egui::Id::new("block_edit").with(&block_id)),
-                        );
-                        if response.changed() {
-                            output.content_changed = Some(text.clone());
-                        }
-                        if response.lost_focus() && text.is_empty() {
-                            output.request_delete = true;
-                        }
-                    }
-                    BlockType::Heading3 => {
-                        let response = ui.add_sized(
-                            ui.available_size(),
-                            egui::TextEdit::multiline(text)
-                                .font(egui::TextStyle::Name("small_heading".into()))
-                                .desired_width(f32::INFINITY)
-                                .text_color(if is_dark {
-                                    egui::Color32::from_rgb(180, 180, 220)
-                                } else {
-                                    egui::Color32::from_rgb(60, 60, 120)
-                                })
-                                .id(egui::Id::new("block_edit").with(&block_id)),
-                        );
-                        if response.changed() {
-                            output.content_changed = Some(text.clone());
-                        }
-                        if response.lost_focus() && text.is_empty() {
-                            output.request_delete = true;
-                        }
-                    }
                     BlockType::Todo => {
                         let checked = block.props.parse::<bool>().unwrap_or(false);
                         let mut new_checked = checked;
@@ -293,7 +273,43 @@ pub fn render_block(
                             output.content_changed = Some(text.clone());
                         }
                     }
-                    BlockType::Text => {
+                    BlockType::Heading1 => {
+                        let heading_size = 22.0;
+                        ui.label(egui::RichText::new("\u{00B6}  ").size(heading_size).color(accent));
+                        let response = ui.add_sized(
+                            ui.available_size(),
+                            egui::TextEdit::multiline(text)
+                                .font(egui::TextStyle::Heading)
+                                .desired_width(f32::INFINITY)
+                                .id(egui::Id::new("block_edit").with(&block_id)),
+                        );
+                        if response.changed() {
+                            output.content_changed = Some(text.clone());
+                        }
+                        if response.lost_focus() && text.is_empty() {
+                            output.request_delete = true;
+                        }
+                    }
+                    BlockType::Heading2 => {
+                        let heading_size = 18.0;
+                        ui.label(egui::RichText::new("\u{00B6}  ").size(heading_size).color(accent));
+                        let response = ui.add_sized(
+                            ui.available_size(),
+                            egui::TextEdit::multiline(text)
+                                .font(egui::TextStyle::Heading)
+                                .desired_width(f32::INFINITY)
+                                .id(egui::Id::new("block_edit").with(&block_id)),
+                        );
+                        if response.changed() {
+                            output.content_changed = Some(text.clone());
+                        }
+                        if response.lost_focus() && text.is_empty() {
+                            output.request_delete = true;
+                        }
+                    }
+                    BlockType::Heading3 => {
+                        let heading_size = 15.0;
+                        ui.label(egui::RichText::new("\u{00B6}  ").size(heading_size).color(accent));
                         let response = ui.add_sized(
                             ui.available_size(),
                             egui::TextEdit::multiline(text)
@@ -306,6 +322,27 @@ pub fn render_block(
                         }
                         if response.lost_focus() && text.is_empty() {
                             output.request_delete = true;
+                        }
+                    }
+                    BlockType::Text => {
+                        let response = ui.add_sized(
+                            ui.available_size(),
+                            egui::TextEdit::multiline(text)
+                                .font(egui::TextStyle::Body)
+                                .desired_width(f32::INFINITY)
+                                .id(egui::Id::new("block_edit").with(&block_id)),
+                        );
+                        if response.changed() {
+                            output.content_changed = Some(text.clone());
+                        }
+                        if text.trim() == "/" && is_focused {
+                            output.show_slash_menu = true;
+                        }
+                        if response.lost_focus() && text.is_empty() {
+                            output.request_delete = true;
+                        }
+                        if response.hovered() {
+                            output.hovered = true;
                         }
                     }
                 }

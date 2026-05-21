@@ -3451,6 +3451,14 @@ pub struct PageEditorState {
     pub focused_block_id: Option<String>,
     /// Whether the page editor is active
     pub active: bool,
+    /// Whether the slash command menu is open
+    pub slash_menu_open: bool,
+    /// The block ID that triggered the slash menu
+    pub slash_menu_block_id: Option<String>,
+    /// Drag state: block_id being dragged
+    pub drag_block_id: Option<String>,
+    /// Original index of the block being dragged
+    pub drag_start_idx: Option<usize>,
 }
 
 impl Default for PageEditorState {
@@ -3459,6 +3467,10 @@ impl Default for PageEditorState {
             buffers: std::collections::HashMap::new(),
             focused_block_id: None,
             active: false,
+            slash_menu_open: false,
+            slash_menu_block_id: None,
+            drag_block_id: None,
+            drag_start_idx: None,
         }
     }
 }
@@ -3483,6 +3495,10 @@ impl PageEditorState {
         self.buffers.clear();
         self.focused_block_id = None;
         self.active = false;
+        self.slash_menu_open = false;
+        self.slash_menu_block_id = None;
+        self.drag_block_id = None;
+        self.drag_start_idx = None;
     }
 }
 

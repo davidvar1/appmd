@@ -29,6 +29,12 @@ Convertir AppMD (formerly Ferrite) — editor Markdown Rust/egui — en un clon 
   - Integración en central panel: cuando `show_page_tree && current_page_id.is_some()`, muestra PageEditor.
   - Keyboard shortcut `Ctrl+Shift+N` para toggle page tree.
   - Fix: eliminación de BOM UTF-8 de todos los YAML locales y upgrade rust-i18n v3→v4.
+- Día 5: Slash commands y drag & drop de bloques.
+  - Slash menu: al escribir `/` en un bloque Text, se abre un popup con todos los BlockTypes para convertir el bloque.
+  - Drag & drop: cada bloque tiene un handle de arrastre (`::`) para reordenar bloques vía `store.reorder_blocks()`.
+  - Renderizado de Heading1, Heading2, Heading3 con ícono `¶` y tamaño escalado.
+  - `BlockEditorOutput.drag_started` para comunicación drag state.
+  - `PageEditorState` con `slash_menu_open`, `slash_menu_block_id`, `drag_block_id`, `drag_start_idx`.
 
 ### In Progress
 - (ninguno)
@@ -37,7 +43,7 @@ Convertir AppMD (formerly Ferrite) — editor Markdown Rust/egui — en un clon 
 - (ninguno)
 
 ## Next Steps
-- Día 5: Slash commands y drag & drop de bloques.
+- Día 6: Nested blocks (toggle, indent/outdent) y/o databases (tablas estilo Notion).
 
 ## Key Decisions
 - PageTreePanel se integra en AppMDApp como campo independiente (no reemplaza FileTreePanel; se activa con `show_page_tree`).
