@@ -12,8 +12,10 @@
 use crate::config::{load_config, save_config_silent, Settings, TabInfo, ViewMode};
 use crate::editor::{compute_edit_ops, EditHistory, TextStats};
 use crate::lsp::{DiagnosticMap, LspManager};
+use crate::store::SqliteStore;
 use crate::ui::TabPipelineState;
 use crate::vcs::GitService;
+use dirs;
 use crate::workspaces::{filter_events, AppMode, Workspace, WorkspaceEvent, WorkspaceWatcher};
 use egui;
 use log::{debug, info, warn};
@@ -3425,6 +3427,15 @@ pub struct AppState {
     pub diagnostics: DiagnosticMap,
     /// Optional toast message to display on the first frame (for startup errors).
     pub pending_toast: Option<String>,
+
+    /// Notion-like page store (SQLite), opened on-demand.
+    pub page_store: Option<SqliteStore>,
+
+    /// Currently active page ID in the page tree (if in notion mode).
+    pub current_page_id: Option<String>,
+
+    /// Whether the page tree sidebar is visible.
+    pub show_page_tree: bool,
 }
 
 impl AppState {
@@ -3443,6 +3454,8 @@ impl AppState {
             settings.theme, settings.view_mode
         );
 
+        let page_store = Self::open_page_store();
+
         let mut state = Self {
             tabs: Vec::new(),
             active_tab_index: 0,
@@ -3459,6 +3472,9 @@ impl AppState {
             lsp: LspManager::new(),
             diagnostics: DiagnosticMap::new(),
             pending_toast: None,
+            page_store,
+            current_page_id: None,
+            show_page_tree: false,
         };
 
         // Try to restore tabs from previous session
@@ -3594,6 +3610,9 @@ impl AppState {
             lsp: LspManager::new(),
             diagnostics: DiagnosticMap::new(),
             pending_toast: None,
+            page_store: None,
+            current_page_id: None,
+            show_page_tree: false,
         };
 
         // Try to restore tabs from session data
@@ -4185,6 +4204,45 @@ impl AppState {
 
         info!("Saved file as: {} (encoding: {})", path.display(), encoding);
         Ok(())
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Page Store (Notion-like)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// Open the SQLite page store in the app data directory.
+    fn open_page_store() -> Option<SqliteStore> {
+        let data_dir = dirs::data_dir().map(|d| d.join("Ferrite"));
+        match data_dir {
+            Some(dir) => {
+                std::fs::create_dir_all(&dir).ok()?;
+                let db_path = dir.join("pages.db");
+                match SqliteStore::open(&db_path) {
+                    Ok(store) => {
+                        info!("Page store opened at: {}", db_path.display());
+                        Some(store)
+                    }
+                    Err(e) => {
+                        warn!("Failed to open page store: {}", e);
+                        None
+                    }
+                }
+            }
+            None => {
+                warn!("No data directory found, page store disabled");
+                None
+            }
+        }
+    }
+
+    /// Get a reference to the page store, if available.
+    pub fn page_store(&self) -> Option<&SqliteStore> {
+        self.page_store.as_ref()
+    }
+
+    /// Toggle the page tree sidebar visibility.
+    pub fn toggle_page_tree(&mut self) {
+        self.show_page_tree = !self.show_page_tree;
     }
 
     // ─────────────────────────────────────────────────────────────────────────

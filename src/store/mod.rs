@@ -76,6 +76,7 @@ pub struct Backlink {
     pub snippet: String,
 }
 
+#[derive(Debug)]
 pub struct SqliteStore {
     conn: Mutex<Connection>,
 }

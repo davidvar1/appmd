@@ -56,10 +56,10 @@ use crate::ui::{
     consume_clicks_in_resize_zones, handle_window_resize, load_app_logo_texture, AboutPanel,
     BacklinksPanel, CommandPalette,
     FileOperationDialog, FileOperationResult, FileTreeContextAction, FileTreePanel,
-    FrontmatterPanel, GoToLineResult, OutlinePanel, ProductivityPanel, QuickSwitcher, Ribbon,
-    RibbonAction, SearchNavigationTarget, SearchPanel, SettingsPanel, TerminalPanel,
-    TerminalPanelState, TitleBarButton, ViewModeSegment, ViewSegmentAction, WelcomePanel,
-    WindowResizeState,
+    FrontmatterPanel, GoToLineResult, OutlinePanel, PageTreePanel, ProductivityPanel,
+    QuickSwitcher, Ribbon, RibbonAction, SearchNavigationTarget, SearchPanel, SettingsPanel,
+    TerminalPanel, TerminalPanelState, TitleBarButton, ViewModeSegment, ViewSegmentAction,
+    WelcomePanel, WindowResizeState,
 };
 use crate::vcs::GitAutoRefresh;
 
@@ -96,6 +96,8 @@ pub struct FerriteApp {
     backlinks_panel: BacklinksPanel,
     /// File tree panel component (for workspace mode)
     file_tree_panel: FileTreePanel,
+    /// Page tree panel component (for Notion mode)
+    page_tree_panel: PageTreePanel,
     /// Quick file switcher (Ctrl+P) for workspace mode
     quick_switcher: QuickSwitcher,
     /// Command palette (Alt+Space) for quick command execution
@@ -431,6 +433,7 @@ impl FerriteApp {
             frontmatter_panel,
             backlinks_panel: BacklinksPanel::new(),
             file_tree_panel: FileTreePanel::new(),
+            page_tree_panel: PageTreePanel::new(),
             quick_switcher: QuickSwitcher::new(),
             command_palette: CommandPalette::new(),
             pending_palette_command: None,
@@ -1921,7 +1924,64 @@ impl FerriteApp {
             self.handle_file_tree_context_action(action);
         }
 
-        // Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰
+        // ─────────────────────────────────────────────────────────────────────
+        // Page Tree Panel (Notion-like page sidebar)
+        // ─────────────────────────────────────────────────────────────────────
+        if self.state.show_page_tree && !zen_mode {
+            if let Some(store) = self.state.page_store() {
+                let page_output = self.page_tree_panel.show(
+                    ctx,
+                    store,
+                    self.state.current_page_id.as_deref(),
+                    is_dark,
+                );
+
+                // Handle page tree actions
+                if let Some(page_id) = page_output.page_clicked {
+                    self.state.current_page_id = Some(page_id);
+                    debug!("Page tree: navigated to page");
+                }
+
+                if let Some(_parent_id) = page_output.create_page_requested {
+                    // Create a new page in the store
+                    if let Some(store) = &self.state.page_store {
+                        match store.create_page("Nueva página", Some("📄"), None) {
+                            Ok(id) => {
+                                let id_clone = id.clone();
+                                self.state.current_page_id = Some(id);
+                                info!("Page tree: created new page {}", id_clone);
+                            }
+                            Err(e) => {
+                                warn!("Failed to create page: {}", e);
+                            }
+                        }
+                    }
+                }
+
+                if let Some(page_id) = page_output.delete_page_requested {
+                    if let Some(store) = &self.state.page_store {
+                        if let Err(e) = store.delete_page(&page_id) {
+                            warn!("Failed to delete page: {}", e);
+                        } else {
+                            info!("Page tree: deleted page {}", page_id);
+                            if self.state.current_page_id.as_deref() == Some(&page_id) {
+                                self.state.current_page_id = None;
+                            }
+                        }
+                    }
+                }
+
+                if page_output.close_requested {
+                    self.state.show_page_tree = false;
+                }
+
+                if let Some(_width) = page_output.new_width {
+                    // Store width preference if needed
+                }
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────────────────
         // Live Pipeline Panel (Bottom panel for JSON/YAML command piping)
         // Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰
         // Only show if:
