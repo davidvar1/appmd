@@ -45,6 +45,18 @@ Convertir AppMD (formerly Ferrite) — editor Markdown Rust/egui — en un clon 
 ## Next Steps
 - Día 6: Nested blocks (toggle, indent/outdent) y/o databases (tablas estilo Notion).
 
+## Git Credentials
+- Remote: `https://github.com/davidvar1/appmd`
+- Para push sin autenticación interactiva, configurar:
+  ```
+  git config --global user.name "David Vargas"
+  git config --global user.email "david.vargas@compumax.com"
+  ```
+- Para evitar pedir password en cada push, usar Git Credential Manager (incluido con Git for Windows) o configurar token:
+  ```
+  git remote set-url origin https://<TOKEN>@github.com/davidvar1/appmd
+  ```
+
 ## Key Decisions
 - PageTreePanel se integra en AppMDApp como campo independiente (no reemplaza FileTreePanel; se activa con `show_page_tree`).
 - SqliteStore se agrega a AppState como `Option<SqliteStore>`, inicializado en `AppState::new()`.
