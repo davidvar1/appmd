@@ -4,6 +4,7 @@
 //!
 mod about;
 mod backlinks_panel;
+mod block_editor;
 mod command_palette;
 mod dialogs;
 mod docked_sidebar;
@@ -13,6 +14,7 @@ mod frontmatter_panel;
 mod icons;
 mod nav_buttons;
 mod outline_panel;
+pub mod page_editor;
 mod page_tree;
 pub mod phosphor_icons;
 mod pipeline;

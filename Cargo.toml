@@ -1,9 +1,9 @@
-[package]
-name = "ferrite"
+﻿[package]
+name = "AppMD"
 version = "0.2.9"
 edition = "2021"
 description = "A fast, lightweight text editor for Markdown, JSON, and more"
-repository = "https://github.com/OlaProeis/Ferrite"
+repository = "https://github.com/davidvar1/appmd"
 license = "MIT"
 authors = ["OlaProeis"]
 keywords = ["markdown", "editor", "text-editor", "egui"]
@@ -20,7 +20,7 @@ high-perf-alloc = ["mimalloc", "tikv-jemallocator"]
 # Async worker infrastructure for background operations (AI, SSH, database)
 async-workers = ["tokio", "poll-promise"]
 # Language Server Protocol integration (diagnostics, hover, go-to-def).
-# Deferred from v0.2.8 — will ship in v0.2.9 with proper diagnostics panel.
+# Deferred from v0.2.8 â€” will ship in v0.2.9 with proper diagnostics panel.
 lsp = []
 
 [dependencies]
@@ -61,7 +61,7 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 font-kit = "0.14.3"
 
 # Internationalization
-rust-i18n = "3"
+rust-i18n = "4"
 sys-locale = "0.3"
 
 # Hashing for Mermaid diagram caching
@@ -103,7 +103,7 @@ ureq = { version = "2", default-features = false, features = ["tls", "json"] }
 # Async runtime for background workers (optional, feature-gated)
 tokio = { version = "1.49", features = ["rt-multi-thread", "macros", "sync", "time"], optional = true }
 poll-promise = { version = "0.3", optional = true }
-# HarfBuzz shaping in pure Rust — pin exact version (newer crate; see docs/technical/editor/harfrust-text-shaping.md)
+# HarfBuzz shaping in pure Rust â€” pin exact version (newer crate; see docs/technical/editor/harfrust-text-shaping.md)
 harfrust = "0.5.2"
 unicode-script = "0.5"
 unicode-segmentation = "1.11"
@@ -197,7 +197,7 @@ assets = [
 name = "ferrite-editor"
 license = "MIT"
 summary = "A fast, lightweight text editor for Markdown, JSON, and more"
-url = "https://github.com/OlaProeis/Ferrite"
+url = "https://github.com/davidvar1/appmd"
 assets = [
     # Binary
     { source = "target/release/ferrite", dest = "/usr/bin/ferrite", mode = "755" },
@@ -221,7 +221,7 @@ assets = [
 # Build with: cargo wix
 # ============================================================================
 [package.metadata.wix]
-name = "Ferrite"
+name = "AppMD"
 manufacturer = "OlaProeis"
 product-icon = "assets/icons/windows/app.ico"
 license = false
@@ -232,8 +232,8 @@ eula = false
 # Build with: cargo bundle --release
 # ============================================================================
 [package.metadata.bundle]
-name = "Ferrite"
-identifier = "com.olaproeis.ferrite"
+name = "AppMD"
+identifier = "com.davidvar1.appmd"
 icon = ["assets/icons/macos/Ferrite.icns"]
 short_description = "A fast, lightweight text editor"
 long_description = """Ferrite is a fast, lightweight text editor built with Rust and egui.

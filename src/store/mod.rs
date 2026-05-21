@@ -1,5 +1,7 @@
+pub mod block_types;
 pub mod schema;
 
+use block_types::BlockType;
 use rusqlite::{params, Connection, Result as SqlResult};
 use std::path::Path;
 use std::sync::Mutex;
@@ -30,6 +32,16 @@ pub struct Block {
     pub depth: i32,
     pub created_at: String,
     pub updated_at: String,
+}
+
+impl Block {
+    pub fn block_type_enum(&self) -> BlockType {
+        BlockType::from_db_string(&self.block_type)
+    }
+
+    pub fn set_block_type_enum(&mut self, bt: BlockType) {
+        self.block_type = bt.to_db_string().to_string();
+    }
 }
 
 #[derive(Debug, Clone)]

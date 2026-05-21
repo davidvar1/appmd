@@ -47,6 +47,8 @@ pub(crate) enum KeyboardAction {
     ToggleOutline,
     /// Toggle file tree panel (Ctrl+Shift+E)
     ToggleFileTree,
+    /// Toggle page tree panel (Notion-like page sidebar)
+    TogglePageTree,
     /// Open quick file switcher (Ctrl+P)
     QuickOpen,
     /// Search in files (Ctrl+Shift+F)

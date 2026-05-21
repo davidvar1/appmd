@@ -1,18 +1,18 @@
-//! Keyboard shortcut handling for the Ferrite application.
+﻿//! Keyboard shortcut handling for the Ferrite application.
 //!
 //! This module detects keyboard shortcuts and dispatches them to the
 //! appropriate handler methods.
 
 use super::helpers::modifier_symbol;
 use super::types::KeyboardAction;
-use super::FerriteApp;
+use super::AppMDApp;
 use crate::config::ShortcutCommand;
 use crate::markdown::MarkdownFormatCommand;
 use eframe::egui;
 use log::{debug, info};
 use rust_i18n::t;
 
-impl FerriteApp {
+impl AppMDApp {
     pub(crate) fn handle_keyboard_shortcuts(&mut self, ctx: &egui::Context) {
         // Skip ALL keyboard shortcuts if terminal has focus
         // Terminal handles its own keyboard input
@@ -214,6 +214,12 @@ impl FerriteApp {
                 return Some(KeyboardAction::ExitMultiCursor);
             }
 
+            // Toggle page tree (Ctrl+Shift+N - hardcoded)
+            if i.modifiers.ctrl && i.modifiers.shift && i.key_pressed(egui::Key::N) {
+                debug!("Keyboard shortcut: Ctrl+Shift+N (Toggle Page Tree)");
+                return Some(KeyboardAction::TogglePageTree);
+            }
+
             // F3/Shift+F3: Find next/prev (hardcoded fallback in case shortcut system misses it)
             // This ensures F3 works even when TextEdit in find panel has focus
             if i.key_pressed(egui::Key::F3) {
@@ -279,6 +285,15 @@ impl FerriteApp {
             }
             KeyboardAction::ToggleFileTree => {
                 self.handle_toggle_file_tree();
+            }
+            KeyboardAction::TogglePageTree => {
+                if self.state.page_store.is_some() {
+                    self.state.toggle_page_tree();
+                    self.state.page_editor.active = self.state.show_page_tree;
+                    info!("Page tree toggled: {}", self.state.show_page_tree);
+                } else {
+                    info!("Cannot toggle page tree: no page store available");
+                }
             }
             KeyboardAction::QuickOpen => {
                 self.handle_quick_open();
