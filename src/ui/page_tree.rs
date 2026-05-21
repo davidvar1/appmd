@@ -27,7 +27,8 @@ pub struct PageTreeOutput {
     pub page_clicked: Option<String>,
     pub create_page_requested: Option<Option<String>>,
     pub delete_page_requested: Option<String>,
-    pub rename_page_requested: Option<String>,
+    pub rename_page_completed: Option<(String, String)>,
+    pub page_move_requested: Option<(String, Option<String>)>,
     pub close_requested: bool,
     pub new_width: Option<f32>,
 }
@@ -39,6 +40,8 @@ pub struct PageTreePanel {
     search_query: String,
     rename_page_id: Option<String>,
     rename_buffer: String,
+    dragged_page_id: Option<String>,
+    drop_target_id: Option<String>,
 }
 
 impl Default for PageTreePanel {
@@ -56,6 +59,8 @@ impl PageTreePanel {
             search_query: String::new(),
             rename_page_id: None,
             rename_buffer: String::new(),
+            dragged_page_id: None,
+            drop_target_id: None,
         }
     }
 
@@ -213,6 +218,22 @@ impl PageTreePanel {
                         }
                     });
 
+                // Handle drag & drop completion
+                if self.dragged_page_id.is_some() {
+                    let mouse_down = ui.input(|i| i.pointer.any_down());
+                    if !mouse_down {
+                        if let Some(target_id) = self.drop_target_id.take() {
+                            if let Some(drag_id) = self.dragged_page_id.take() {
+                                if drag_id != target_id {
+                                    output.page_move_requested = Some((drag_id, Some(target_id)));
+                                }
+                            }
+                        } else {
+                            self.dragged_page_id = None;
+                        }
+                    }
+                }
+
                 docked_sidebar::paint_vertical_divider(ui, border_color, DockedSidebarEdge::Left);
             });
 
@@ -268,7 +289,7 @@ impl PageTreePanel {
     }
 
     fn render_node(
-        &self,
+        &mut self,
         ui: &mut Ui,
         node: &PageTreeNode,
         depth: usize,
@@ -303,7 +324,7 @@ impl PageTreePanel {
 
         let row_width = ui.available_width();
         let (row_rect, row_response) =
-            ui.allocate_exact_size(Vec2::new(row_width, ROW_HEIGHT), Sense::click());
+            ui.allocate_exact_size(Vec2::new(row_width, ROW_HEIGHT), Sense::click_and_drag());
 
         // Background
         if is_active {
@@ -358,31 +379,69 @@ impl PageTreePanel {
         );
         content_pos.x += 20.0;
 
-        // Page title (or rename text edit)
-        let title = if node.page.title.is_empty() {
-            "Sin título"
-        } else {
-            &node.page.title
-        };
+        // Rename mode: show inline TextEdit
+        if self.rename_page_id.as_deref() == Some(&node.page.id) {
+            let text_rect = egui::Rect::from_min_size(
+                content_pos,
+                egui::vec2(row_width - content_pos.x - 8.0, ROW_HEIGHT),
+            );
+            let text_edit = egui::TextEdit::singleline(&mut self.rename_buffer)
+                .desired_width(f32::INFINITY)
+                .font(egui::TextStyle::Body);
+            let response = ui.put(text_rect, text_edit);
 
-        let title_color = if node.page.title.is_empty() {
-            if is_dark {
-                Color32::from_rgb(108, 112, 134)
-            } else {
-                Color32::from_rgb(140, 140, 140)
+            if !response.has_focus() {
+                response.request_focus();
+            }
+
+            let enter_pressed = ui.input(|i| i.key_pressed(egui::Key::Enter));
+            let escape_pressed = ui.input(|i| i.key_pressed(egui::Key::Escape));
+            let focus_lost = response.lost_focus() && !enter_pressed && !escape_pressed;
+
+            if enter_pressed {
+                if !self.rename_buffer.is_empty() {
+                    output.rename_page_completed =
+                        Some((node.page.id.clone(), self.rename_buffer.clone()));
+                }
+                self.rename_page_id = None;
+                self.rename_buffer.clear();
+            } else if escape_pressed {
+                self.rename_page_id = None;
+                self.rename_buffer.clear();
+            } else if focus_lost {
+                if !self.rename_buffer.is_empty() {
+                    output.rename_page_completed =
+                        Some((node.page.id.clone(), self.rename_buffer.clone()));
+                }
+                self.rename_page_id = None;
+                self.rename_buffer.clear();
             }
         } else {
-            text_color
-        };
+            // Page title
+            let title = if node.page.title.is_empty() {
+                "Sin título"
+            } else {
+                &node.page.title
+            };
 
-        let _title_max_width = row_width - indent - 60.0;
-        ui.painter().text(
-            content_pos,
-            egui::Align2::LEFT_TOP,
-            title,
-            egui::FontId::proportional(13.0),
-            title_color,
-        );
+            let title_color = if node.page.title.is_empty() {
+                if is_dark {
+                    Color32::from_rgb(108, 112, 134)
+                } else {
+                    Color32::from_rgb(140, 140, 140)
+                }
+            } else {
+                text_color
+            };
+
+            ui.painter().text(
+                content_pos,
+                egui::Align2::LEFT_TOP,
+                title,
+                egui::FontId::proportional(13.0),
+                title_color,
+            );
+        }
 
         // Handle click
         if row_response.clicked() {
@@ -397,6 +456,37 @@ impl PageTreePanel {
             output.page_clicked = Some(node.page.id.clone());
         }
 
+        // Drag & drop: detect drag start
+        if row_response.drag_started() {
+            self.dragged_page_id = Some(node.page.id.clone());
+        }
+
+        // Drop target detection while dragging
+        if self.dragged_page_id.is_some()
+            && self.dragged_page_id.as_deref() != Some(&node.page.id)
+        {
+            if let Some(pointer_pos) = ui.input(|i| i.pointer.interact_pos()) {
+                if row_rect.contains(pointer_pos) {
+                    self.drop_target_id = Some(node.page.id.clone());
+
+                    // Draw drop indicator (colored bar at top of row)
+                    let indicator_color = Color32::from_rgb(203, 166, 247);
+                    ui.painter().rect_filled(
+                        egui::Rect::from_min_size(
+                            egui::pos2(row_rect.left(), row_rect.top()),
+                            egui::vec2(row_rect.width(), 2.0),
+                        ),
+                        1.0,
+                        indicator_color,
+                    );
+                }
+            }
+        } else if self.dragged_page_id.as_deref() == Some(&node.page.id) {
+            // Dim the dragged item
+            let dim_bg = Color32::from_rgba_premultiplied(100, 100, 120, 40);
+            ui.painter().rect_filled(row_rect, 4.0, dim_bg);
+        }
+
         // Context menu
         row_response.context_menu(|ui| {
             if ui.button("＋ Nueva sub-página").clicked() {
@@ -405,7 +495,12 @@ impl PageTreePanel {
             }
             ui.separator();
             if ui.button("✏️ Renombrar").clicked() {
-                output.rename_page_requested = Some(node.page.id.clone());
+                self.rename_page_id = Some(node.page.id.clone());
+                self.rename_buffer = if node.page.title.is_empty() {
+                    String::new()
+                } else {
+                    node.page.title.clone()
+                };
                 ui.close_menu();
             }
             ui.separator();

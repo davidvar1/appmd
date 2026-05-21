@@ -1942,10 +1942,9 @@ impl FerriteApp {
                     debug!("Page tree: navigated to page");
                 }
 
-                if let Some(_parent_id) = page_output.create_page_requested {
-                    // Create a new page in the store
+                if let Some(parent_id) = page_output.create_page_requested {
                     if let Some(store) = &self.state.page_store {
-                        match store.create_page("Nueva página", Some("📄"), None) {
+                        match store.create_page("Nueva página", Some("📄"), parent_id.as_deref()) {
                             Ok(id) => {
                                 let id_clone = id.clone();
                                 self.state.current_page_id = Some(id);
@@ -1967,6 +1966,26 @@ impl FerriteApp {
                             if self.state.current_page_id.as_deref() == Some(&page_id) {
                                 self.state.current_page_id = None;
                             }
+                        }
+                    }
+                }
+
+                if let Some((page_id, new_title)) = page_output.rename_page_completed {
+                    if let Some(store) = &self.state.page_store {
+                        if let Err(e) = store.update_page(&page_id, &new_title, None, None) {
+                            warn!("Failed to rename page: {}", e);
+                        } else {
+                            info!("Page tree: renamed page {} to {}", page_id, new_title);
+                        }
+                    }
+                }
+
+                if let Some((page_id, new_parent_id)) = page_output.page_move_requested {
+                    if let Some(store) = &self.state.page_store {
+                        if let Err(e) = store.move_page(&page_id, new_parent_id.as_deref(), 0) {
+                            warn!("Failed to move page: {}", e);
+                        } else {
+                            info!("Page tree: moved page {} to parent {:?}", page_id, new_parent_id);
                         }
                     }
                 }
