@@ -2,6 +2,7 @@ use crate::state::PageEditorState;
 use crate::store::block_types::BlockType;
 use crate::store::{Block, SqliteStore};
 use eframe::egui;
+use std::collections::HashMap;
 
 use super::block_editor::render_block;
 
@@ -21,6 +22,7 @@ pub struct CreateBlockAction {
     pub block_type: BlockType,
     pub content: String,
     pub after_block_id: Option<String>,
+    pub parent_block_id: Option<String>,
 }
 
 #[derive(Debug)]
@@ -39,6 +41,35 @@ pub struct UpdateTypeAction {
 pub struct UpdatePropsAction {
     pub block_id: String,
     pub props: String,
+}
+
+fn build_children_map(blocks: &[Block]) -> HashMap<Option<String>, Vec<usize>> {
+    let mut map: HashMap<Option<String>, Vec<usize>> = HashMap::new();
+    for (i, b) in blocks.iter().enumerate() {
+        map.entry(b.parent_block_id.clone()).or_default().push(i);
+    }
+    for v in map.values_mut() {
+        v.sort_by(|a, b| blocks[*a].sort_order.cmp(&blocks[*b].sort_order));
+    }
+    map
+}
+
+fn flatten_blocks(
+    blocks: &[Block],
+    parent: Option<String>,
+    children_map: &HashMap<Option<String>, Vec<usize>>,
+    open_states: &HashMap<String, bool>,
+    result: &mut Vec<usize>,
+) {
+    if let Some(indices) = children_map.get(&parent) {
+        for &idx in indices {
+            result.push(idx);
+            let is_open = *open_states.get(&blocks[idx].id).unwrap_or(&true);
+            if is_open {
+                flatten_blocks(blocks, Some(blocks[idx].id.clone()), children_map, open_states, result);
+            }
+        }
+    }
 }
 
 pub struct PageEditor {
@@ -64,8 +95,6 @@ impl PageEditor {
         store: &SqliteStore,
         page_id: &str,
     ) {
-        use crate::store::block_types::BlockType;
-
         let slash_types = [
             (BlockType::Text, "Text", "Just start writing"),
             (BlockType::Heading1, "Heading 1", "Large section heading"),
@@ -109,7 +138,7 @@ impl PageEditor {
 
                         let mut selected: Option<BlockType> = None;
                         for (bt, name, desc) in &slash_types {
-                            let resp = ui.selectable_label(false, format!("{}  —  {}", name, desc));
+                            let resp = ui.selectable_label(false, format!("{}  \u{2014}  {}", name, desc));
                             if resp.clicked() {
                                 selected = Some(bt.clone());
                                 close_menu = true;
@@ -175,118 +204,78 @@ impl PageEditor {
             return actions;
         }
 
+        let children_map = build_children_map(&self.blocks);
+        let mut flat_order: Vec<usize> = Vec::new();
+        flatten_blocks(
+            &self.blocks,
+            None,
+            &children_map,
+            &editor_state.toggle_open_states,
+            &mut flat_order,
+        );
+
         let scroll_id = egui::Id::new("page_editor_scroll").with(page_id);
         egui::ScrollArea::vertical()
             .id_source(scroll_id)
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 ui.spacing_mut().item_spacing.y = 2.0;
-
-                let block_ids: Vec<String> = self.blocks.iter().map(|b| b.id.clone()).collect();
+                let indent_per_level = 20.0;
 
                 let mut blocks_to_delete: Vec<usize> = Vec::new();
                 let mut blocks_to_create_after: Vec<(usize, BlockType)> = Vec::new();
                 let mut drop_idx: Option<usize> = None;
 
-                for (i, block) in self.blocks.iter_mut().enumerate() {
+                let tab_pressed = ui.input(|i| i.key_pressed(egui::Key::Tab));
+                let shift_tab_pressed = ui.input(|i| i.key_pressed(egui::Key::Tab) && i.modifiers.shift);
+
+                for &flat_idx in &flat_order {
+                    let block = &self.blocks[flat_idx];
                     let is_focused = editor_state
                         .focused_block_id
                         .as_deref()
                         .map_or(false, |id| id == &block.id);
+
                     let block_type = block.block_type_enum();
                     let mut text = editor_state
                         .get_buffer(&block.id, &block.content)
                         .clone();
 
-                    let block_output = render_block(
-                        ui,
-                        block,
-                        &block_type,
-                        &mut text,
-                        i,
-                        is_focused,
-                        is_dark,
-                    );
-
-                    if block_output.drag_started {
-                        editor_state.drag_block_id = Some(block.id.clone());
-                        editor_state.drag_start_idx = Some(i);
-                    }
-
-                    if let Some(new_content) = block_output.content_changed {
-                        editor_state.sync_buffer(&block.id, &new_content);
-                        if editor_state.slash_menu_open {
-                            let bid = editor_state.slash_menu_block_id.clone().unwrap_or_default();
-                            if new_content != "/" && block.id == bid {
-                                editor_state.slash_menu_open = false;
-                                editor_state.slash_menu_block_id = None;
-                            }
-                        }
-                        actions
-                            .update_content
-                            .push(UpdateContentAction {
-                                block_id: block.id.clone(),
-                                content: new_content.clone(),
+                    let indent = block.depth as f32 * indent_per_level;
+                    if indent > 0.0 {
+                        ui.horizontal(|ui| {
+                            ui.add_space(indent);
+                            ui.vertical(|ui| {
+                                Self::render_single_block(
+                                    ui, store, page_id, editor_state, &mut actions,
+                                    &mut blocks_to_delete, &mut blocks_to_create_after,
+                                    &mut drop_idx, flat_idx, block, &block_type,
+                                    &mut text, is_focused, is_dark,
+                                );
                             });
-                        block.content = new_content;
+                        });
+                    } else {
+                        Self::render_single_block(
+                            ui, store, page_id, editor_state, &mut actions,
+                            &mut blocks_to_delete, &mut blocks_to_create_after,
+                            &mut drop_idx, flat_idx, block, &block_type,
+                            &mut text, is_focused, is_dark,
+                        );
                     }
 
-                    if let Some(new_checked) = block_output.checked_changed {
-                        actions
-                            .update_props
-                            .push(UpdatePropsAction {
-                                block_id: block.id.clone(),
-                                props: new_checked.to_string(),
-                            });
-                    }
-
-                    if let Some(focus_id) = block_output.request_focus {
-                        editor_state.focused_block_id = Some(focus_id);
-                    }
-
-                    if block_output.show_slash_menu && is_focused {
-                        editor_state.slash_menu_open = true;
-                        editor_state.slash_menu_block_id = Some(block.id.clone());
-                    }
-
-                    if block_output.request_delete {
-                        blocks_to_delete.push(i);
-                    }
-
-                    if editor_state.slash_menu_open
-                        && editor_state.slash_menu_block_id.as_deref() == Some(&block.id)
-                    {
-                        Self::render_slash_menu(ui, editor_state, &block.id, &mut actions, store, page_id);
-                    }
-
-                    let enter_pressed = ui.input(|i| {
-                        i.key_pressed(egui::Key::Enter) && !i.modifiers.shift
-                    });
-
-                    let backspace_on_empty = ui.input(|i| {
-                        i.key_pressed(egui::Key::Backspace) && text.is_empty()
-                    });
-
-                    if enter_pressed && is_focused && !editor_state.slash_menu_open {
-                        blocks_to_create_after.push((i, BlockType::Text));
-                    }
-
-                    if backspace_on_empty && is_focused && i > 0 {
-                        blocks_to_delete.push(i);
-                    }
-
-                    if let Some(drag_id) = &editor_state.drag_block_id {
-                        if block.id != *drag_id {
-                            let drop_zone = ui.allocate_space(egui::vec2(ui.available_width(), 4.0));
-                            let drop_response = ui.interact(
-                                drop_zone.1,
-                                egui::Id::new("drop_zone").with(i).with("after"),
-                                egui::Sense::click(),
-                            );
-                            if drop_response.hovered() && ui.ctx().input(|i| i.pointer.any_released()) {
-                                drop_idx = Some(i);
-                            }
+                    if is_focused && tab_pressed && !editor_state.slash_menu_open {
+                        let _ = store.indent_block(&block.id);
+                        if let Ok(blocks) = store.get_blocks(page_id) {
+                            self.blocks = blocks;
                         }
+                        break;
+                    }
+                    if is_focused && shift_tab_pressed && !editor_state.slash_menu_open {
+                        let _ = store.outdent_block(&block.id);
+                        if let Ok(blocks) = store.get_blocks(page_id) {
+                            self.blocks = blocks;
+                        }
+                        break;
                     }
                 }
 
@@ -354,5 +343,125 @@ impl PageEditor {
             });
 
         actions
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn render_single_block(
+        ui: &mut egui::Ui,
+        _store: &SqliteStore,
+        _page_id: &str,
+        editor_state: &mut PageEditorState,
+        actions: &mut PageEditorActions,
+        blocks_to_delete: &mut Vec<usize>,
+        blocks_to_create_after: &mut Vec<(usize, BlockType)>,
+        drop_idx: &mut Option<usize>,
+        block_idx: usize,
+        block: &Block,
+        block_type: &BlockType,
+        text: &mut String,
+        is_focused: bool,
+        is_dark: bool,
+    ) {
+        let block_output = render_block(
+            ui,
+            block,
+            block_type,
+            text,
+            block_idx,
+            is_focused,
+            is_dark,
+            editor_state.is_toggle_open(&block.id),
+        );
+
+        if block_output.toggle_toggled {
+            editor_state.toggle_toggle(&block.id);
+        }
+
+        if block_output.drag_started {
+            editor_state.drag_block_id = Some(block.id.clone());
+            editor_state.drag_start_idx = Some(block_idx);
+        }
+
+        if let Some(new_content) = &block_output.content_changed {
+            editor_state.sync_buffer(&block.id, new_content);
+            if editor_state.slash_menu_open {
+                let bid = editor_state.slash_menu_block_id.clone().unwrap_or_default();
+                if new_content != "/" && block.id == bid {
+                    editor_state.slash_menu_open = false;
+                    editor_state.slash_menu_block_id = None;
+                }
+            }
+            actions
+                .update_content
+                .push(UpdateContentAction {
+                    block_id: block.id.clone(),
+                    content: new_content.clone(),
+                });
+        }
+
+        if let Some(new_checked) = &block_output.checked_changed {
+            actions
+                .update_props
+                .push(UpdatePropsAction {
+                    block_id: block.id.clone(),
+                    props: new_checked.to_string(),
+                });
+        }
+
+        if let Some(focus_id) = &block_output.request_focus {
+            editor_state.focused_block_id = Some(focus_id.clone());
+        }
+
+        if block_output.show_slash_menu && is_focused {
+            editor_state.slash_menu_open = true;
+            editor_state.slash_menu_block_id = Some(block.id.clone());
+        }
+
+        if block_output.request_delete {
+            blocks_to_delete.push(block_idx);
+        }
+
+        let enter_pressed = ui.input(|i| {
+            i.key_pressed(egui::Key::Enter) && !i.modifiers.shift
+        });
+
+        let backspace_on_empty = ui.input(|i| {
+            i.key_pressed(egui::Key::Backspace) && text.is_empty()
+        });
+
+        if enter_pressed && is_focused && !editor_state.slash_menu_open {
+            blocks_to_create_after.push((block_idx, BlockType::Text));
+        }
+
+        if backspace_on_empty && is_focused && block_idx > 0 {
+            blocks_to_delete.push(block_idx);
+        }
+
+        if editor_state.slash_menu_open
+            && editor_state.slash_menu_block_id.as_deref() == Some(&block.id)
+        {
+            Self::render_slash_menu(
+                ui,
+                editor_state,
+                &block.id,
+                actions,
+                _store,
+                _page_id,
+            );
+        }
+
+        if let Some(drag_id) = &editor_state.drag_block_id {
+            if block.id != *drag_id {
+                let drop_zone = ui.allocate_space(egui::vec2(ui.available_width(), 4.0));
+                let drop_response = ui.interact(
+                    drop_zone.1,
+                    egui::Id::new("drop_zone").with(block_idx).with("after"),
+                    egui::Sense::click(),
+                );
+                if drop_response.hovered() && ui.ctx().input(|i| i.pointer.any_released()) {
+                    *drop_idx = Some(block_idx);
+                }
+            }
+        }
     }
 }

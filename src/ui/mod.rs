@@ -5,6 +5,7 @@
 mod about;
 mod backlinks_panel;
 mod block_editor;
+pub mod database_view;
 mod command_palette;
 mod dialogs;
 mod docked_sidebar;

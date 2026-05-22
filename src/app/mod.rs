@@ -1,4 +1,4 @@
-//! Main application module for Ferrite
+﻿//! Main application module for Ferrite
 //!
 //! This module implements the eframe App trait for the main application,
 //! handling window management, UI updates, and event processing.
@@ -33,7 +33,7 @@ use crate::config::{
     SnippetManager, Theme, ViewMode, WindowSize,
 };
 use crate::editor::{
-    cleanup_ferrite_editor, extract_outline_for_file, DocumentOutline, DocumentStats, EditorWidget,
+    cleanup_appmd_editor, extract_outline_for_file, DocumentOutline, DocumentStats, EditorWidget,
     FindReplacePanel, Minimap, OutlineType, SearchHighlights, SemanticMinimap, TextStats,
 };
 use crate::export::copy_html_to_clipboard;
@@ -73,7 +73,7 @@ use std::collections::HashMap;
 
 /// Keyboard shortcut actions that need to be deferred.
 /// The main application struct that holds all state and implements eframe::App.
-pub struct FerriteApp {
+pub struct AppMDApp {
     /// Central application state
     state: AppState,
     /// Theme manager for handling theme switching
@@ -98,6 +98,10 @@ pub struct FerriteApp {
     file_tree_panel: FileTreePanel,
     /// Page tree panel component (for Notion mode)
     page_tree_panel: PageTreePanel,
+    /// Page editor component (for Notion-like block editing)
+    page_editor: crate::ui::page_editor::PageEditor,
+    /// Database table view component
+    database_view: crate::ui::database_view::DatabaseView,
     /// Quick file switcher (Ctrl+P) for workspace mode
     quick_switcher: QuickSwitcher,
     /// Command palette (Alt+Space) for quick command execution
@@ -148,11 +152,11 @@ pub struct FerriteApp {
     lsp_opened_docs: std::collections::HashSet<std::path::PathBuf>,
     /// Per-path LSP document version counters for `textDocument/didChange`.
     lsp_doc_versions: std::collections::HashMap<std::path::PathBuf, i32>,
-    /// Per-path `last_edit_time` snapshot — only sync when it changes.
+    /// Per-path `last_edit_time` snapshot â€” only sync when it changes.
     lsp_last_edit_times: std::collections::HashMap<std::path::PathBuf, std::time::Instant>,
     /// Per-path debounce: when the last `didChange` was sent.
     lsp_last_change_sent: std::collections::HashMap<std::path::PathBuf, std::time::Instant>,
-    /// Tab ID → (normalized_path, server_key) for tabs with an active didOpen.
+    /// Tab ID â†’ (normalized_path, server_key) for tabs with an active didOpen.
     lsp_tab_server: std::collections::HashMap<usize, (std::path::PathBuf, String)>,
     /// Number of open documents per server key (for idle shutdown).
     lsp_open_doc_count: std::collections::HashMap<String, usize>,
@@ -218,8 +222,8 @@ pub struct FerriteApp {
     loading_tasks: HashMap<usize, std::thread::JoinHandle<()>>,
 }
 
-impl FerriteApp {
-    /// Create a new FerriteApp instance.
+impl AppMDApp {
+    /// Create a new AppMDApp instance.
     ///
     /// This initializes the application state from the config file and applies
     /// the saved theme preference. It also checks for crash recovery and
@@ -228,7 +232,7 @@ impl FerriteApp {
         use crate::config::{create_lock_file, load_session_state, SessionSaveThrottle};
 
         info!("Initializing Ferrite");
-        crate::diag::event_once("app_new", "FerriteApp::new started");
+        crate::diag::event_once("app_new", "AppMDApp::new started");
         crate::log_memory("App::new() start");
 
         // Set up custom fonts with lazy CJK loading for faster startup
@@ -346,7 +350,7 @@ impl FerriteApp {
 
         // If the UI language is CJK, ensure fonts are loaded regardless of the
         // checks above. This covers the case where a non-CJK-locale user chose
-        // a CJK language — without this, the UI shows squares after restart.
+        // a CJK language â€” without this, the UI shows squares after restart.
         if let Some(lang_cjk) = state.settings.language.required_cjk_font() {
             if !fonts::are_cjk_fonts_loaded() {
                 fonts::preload_explicit_cjk_font_with_custom(
@@ -434,6 +438,8 @@ impl FerriteApp {
             backlinks_panel: BacklinksPanel::new(),
             file_tree_panel: FileTreePanel::new(),
             page_tree_panel: PageTreePanel::new(),
+            page_editor: crate::ui::page_editor::PageEditor::new(),
+            database_view: crate::ui::database_view::DatabaseView::new(),
             quick_switcher: QuickSwitcher::new(),
             command_palette: CommandPalette::new(),
             pending_palette_command: None,
@@ -651,9 +657,9 @@ impl FerriteApp {
     ///
     /// This enables lazy CJK font loading - only the fonts needed for the detected
     /// scripts are loaded:
-    /// - Korean text ΓåÆ loads only Korean font (~15-20MB)
-    /// - Japanese text ΓåÆ loads only Japanese font (~15-20MB)
-    /// - Chinese text ΓåÆ loads only Chinese font based on preference (~15-20MB)
+    /// - Korean text Î“Ã¥Ã† loads only Korean font (~15-20MB)
+    /// - Japanese text Î“Ã¥Ã† loads only Japanese font (~15-20MB)
+    /// - Chinese text Î“Ã¥Ã† loads only Chinese font based on preference (~15-20MB)
     ///
     /// This is much more memory efficient than loading all CJK fonts at once.
     /// Returns `true` if any new fonts were loaded.
@@ -753,9 +759,9 @@ impl FerriteApp {
     /// Get the window title based on current state.
     ///
     /// Returns a title in the format: "Filename - Ferrite"
-    /// or "Ferrite" if no file is open.
+    /// or "AppMD" if no file is open.
     fn window_title(&self) -> String {
-        const APP_NAME: &str = "Ferrite";
+        const APP_NAME: &str = "AppMD";
 
         if let Some(tab) = self.state.active_tab() {
             let tab_title = tab.title();
@@ -783,9 +789,9 @@ impl FerriteApp {
         }
     }
 
-    // ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+    // Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡
     // Session Persistence (Crash Recovery)
-    // ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+    // Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡
 
     /// Update session recovery state - called every frame.
     ///
@@ -921,7 +927,7 @@ impl FerriteApp {
         // Clean up egui temporary data for rendered editor widgets
         if let Some(ctx) = ctx {
             cleanup_rendered_editor_memory(ctx);
-            cleanup_ferrite_editor(ctx, tab_id);
+            cleanup_appmd_editor(ctx, tab_id);
         }
 
         // Clear global caches that may hold large data from the closed tab.
@@ -930,7 +936,7 @@ impl FerriteApp {
         crate::markdown::cache::clear_ast_cache();
         crate::markdown::cache::clear_block_height_cache();
 
-        // Clear find/replace matches — these can be very large for big files
+        // Clear find/replace matches â€” these can be very large for big files
         self.state.ui.find_state.clear();
 
         // After freeing large data, ask the allocator to return pages to the OS.
@@ -938,9 +944,9 @@ impl FerriteApp {
         crate::purge_allocator_caches();
     }
 
-    // ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+    // Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡
     // Snippet Expansion
-    // ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+    // Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡
 
     /// Check for and apply snippet expansion after a space or tab is typed.
     ///
@@ -1049,9 +1055,9 @@ impl FerriteApp {
         false
     }
 
-    // ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+    // Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡
     // Idle Detection for CPU Optimization
-    // ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+    // Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡
 
     /// Check if the application needs continuous repainting.
     ///
@@ -1141,9 +1147,9 @@ impl FerriteApp {
         })
     }
 
-    // ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+    // Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡
     // Auto-Save Processing
-    // ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+    // Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡Î“Ã¶Ã‡
 
     /// Process auto-save for all tabs that need it.
     ///
@@ -1499,7 +1505,7 @@ impl FerriteApp {
             let theme_colors = ThemeColors::from_theme(
                 theme,
                 &ctx.style().visuals,
-                self.state.settings.ferrite_accent_rgb(),
+                self.state.settings.appmd_accent_rgb(),
             );
 
             let ribbon_bg = if is_dark {
@@ -1568,11 +1574,11 @@ impl FerriteApp {
         let mut deferred_format_action = if let Some(action) = ribbon_action {
             match action {
                 RibbonAction::Format(cmd) => {
-                    // Capture the current selection state from FerriteEditor
-                    use crate::editor::get_ferrite_editor_mut;
+                    // Capture the current selection state from AppMDEditor
+                    use crate::editor::get_appmd_editor_mut;
                     let tab_id = self.state.active_tab().map(|t| t.id);
                     let selection = tab_id.and_then(|id| {
-                        get_ferrite_editor_mut(ctx, id, |editor| {
+                        get_appmd_editor_mut(ctx, id, |editor| {
                             let sel = editor.selection();
                             let (start, end) = sel.ordered();
 
@@ -1631,7 +1637,7 @@ impl FerriteApp {
                     });
                     if selection.is_none() {
                         debug!(
-                            "WARNING: No selection captured for format action {:?} - FerriteEditor may not be initialized yet",
+                            "WARNING: No selection captured for format action {:?} - AppMDEditor may not be initialized yet",
                             cmd
                         );
                     } else {
@@ -1665,9 +1671,9 @@ impl FerriteApp {
             }
         }
 
-        // Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰
+        // ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°
         // Outline Panel (if enabled) - hidden in Zen Mode
-        // Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰
+        // ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°
         let mut outline_nav_request: Option<HeadingNavRequest> = None;
         let mut outline_toggled_id: Option<String> = None;
         let mut outline_new_width: Option<f32> = None;
@@ -1737,7 +1743,7 @@ impl FerriteApp {
                 &self.cached_outline,
                 self.cached_doc_stats.as_ref(),
                 is_dark,
-                self.state.settings.ferrite_accent_rgb(),
+                self.state.settings.appmd_accent_rgb(),
                 if docked {
                     Some(&mut self.productivity_panel)
                 } else {
@@ -1830,11 +1836,11 @@ impl FerriteApp {
             }
         }
 
-        // Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰
+        // ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°
         // (Frontmatter is now rendered inside the outline panel's FM tab)
 
         // File Tree Panel (workspace mode only) - hidden in Zen Mode
-        // Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰
+        // ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°
         let mut file_tree_file_clicked: Option<std::path::PathBuf> = None;
         let mut file_tree_path_toggled: Option<std::path::PathBuf> = None;
         let mut file_tree_needs_loading: Option<std::path::PathBuf> = None;
@@ -1924,9 +1930,9 @@ impl FerriteApp {
             self.handle_file_tree_context_action(action);
         }
 
-        // ─────────────────────────────────────────────────────────────────────
+        // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         // Page Tree Panel (Notion-like page sidebar)
-        // ─────────────────────────────────────────────────────────────────────
+        // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         if self.state.show_page_tree && !zen_mode {
             if let Some(store) = self.state.page_store() {
                 let page_output = self.page_tree_panel.show(
@@ -1944,7 +1950,7 @@ impl FerriteApp {
 
                 if let Some(parent_id) = page_output.create_page_requested {
                     if let Some(store) = &self.state.page_store {
-                        match store.create_page("Nueva página", Some("📄"), parent_id.as_deref()) {
+                        match store.create_page("Nueva pÃ¡gina", Some("ðŸ“„"), parent_id.as_deref()) {
                             Ok(id) => {
                                 let id_clone = id.clone();
                                 self.state.current_page_id = Some(id);
@@ -2000,9 +2006,9 @@ impl FerriteApp {
             }
         }
 
-        // ─────────────────────────────────────────────────────────────────────
+        // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         // Live Pipeline Panel (Bottom panel for JSON/YAML command piping)
-        // Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰
+        // ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°ÃŽâ€œÃƒÂ²Ãƒâ€°
         // Only show if:
         // 1. Pipeline feature is enabled globally
         // 2. Not in Zen Mode (hide for distraction-free writing)
@@ -2238,7 +2244,7 @@ impl FerriteApp {
             // the same size as the dock did (avoids a jarring resize on
             // first detach and gives `Resize` a sensible upper bound).
             let dock_width = self.state.settings.outline_width;
-            let ferrite_accent_panel = self.state.settings.ferrite_accent_rgb();
+            let ferrite_accent_panel = self.state.settings.appmd_accent_rgb();
             self.productivity_panel.show(
                 ctx,
                 &mut self.state.settings.productivity_panel_visible,
@@ -2473,7 +2479,7 @@ impl FerriteApp {
     }
 }
 
-impl eframe::App for FerriteApp {
+impl eframe::App for AppMDApp {
     /// Called each time the UI needs repainting.
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         crate::diag::next_frame();
@@ -2526,7 +2532,7 @@ impl eframe::App for FerriteApp {
             self.update_interaction_time();
         }
 
-        // Lazy load CJK/complex-script fonts (cached via content_version — O(1) per frame)
+        // Lazy load CJK/complex-script fonts (cached via content_version â€” O(1) per frame)
         let (needs_cjk, needs_complex) = if let Some(tab) = self.state.active_tab_mut() {
             (tab.needs_cjk_cached(), tab.needs_complex_script_cached())
         } else {
@@ -2545,7 +2551,7 @@ impl eframe::App for FerriteApp {
 
         // Also ensure CJK fonts are loaded if the UI language requires them.
         // This catches the case where no CJK document is open but the user
-        // selected a CJK language (e.g. Chinese) — all UI labels need the font.
+        // selected a CJK language (e.g. Chinese) â€” all UI labels need the font.
         if !fonts::are_cjk_fonts_loaded() {
             if let Some(lang_cjk) = self.state.settings.language.required_cjk_font() {
                 let custom_font = self
@@ -2630,9 +2636,9 @@ impl eframe::App for FerriteApp {
         // built-in undo from processing them. Must happen before render_ui().
         self.consume_undo_redo_keys(ctx);
 
-        // NOTE: Event::Cut filter removed - FerriteEditor handles cut correctly
-        // The old filter checked Tab.cursors which isn't synced with FerriteEditor.selections
-        // FerriteEditor's cut handler already checks has_selection() before cutting
+        // NOTE: Event::Cut filter removed - AppMDEditor handles cut correctly
+        // The old filter checked Tab.cursors which isn't synced with AppMDEditor.selections
+        // AppMDEditor's cut handler already checks has_selection() before cutting
 
         // IMPORTANT: Consume Alt+Arrow keys BEFORE rendering to prevent egui's TextEdit
         // from processing the arrow keys and moving the cursor before we can handle the move.
@@ -2731,9 +2737,9 @@ impl eframe::App for FerriteApp {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
 
-        // ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+        // Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰
         // Frame Rate Diagnostics (Debug Only)
-        // ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+        // Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰
         #[cfg(debug_assertions)]
         {
             self.frame_count += 1;
@@ -2771,9 +2777,9 @@ impl eframe::App for FerriteApp {
             }
         }
 
-        // ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+        // Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰
         // Deferred CJK Font Loading
-        // ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+        // Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰
         // Check for CJK content in newly opened files and load fonts immediately.
         // This flag is set when a file is opened during the UI render pass (which
         // happens AFTER the regular CJK check at the start of update). By checking
@@ -2800,9 +2806,9 @@ impl eframe::App for FerriteApp {
             }
         }
 
-        // ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+        // Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰
         // Idle Repaint Optimization
-        // ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+        // Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰Î“Ã²Ã‰
         // Schedule delayed repaints when idle to reduce CPU usage.
         // This is particularly important on macOS Intel where continuous repaints
         // can cause high CPU usage even when the app is idle.

@@ -35,6 +35,14 @@ Convertir AppMD (formerly Ferrite) — editor Markdown Rust/egui — en un clon 
   - Renderizado de Heading1, Heading2, Heading3 con ícono `¶` y tamaño escalado.
   - `BlockEditorOutput.drag_started` para comunicación drag state.
   - `PageEditorState` con `slash_menu_open`, `slash_menu_block_id`, `drag_block_id`, `drag_start_idx`.
+- Día 6: Nested blocks (toggle, indent/outdent) y database view.
+  - Toggle collapse/expand: clic en flecha `▶`/`▼` para mostrar/ocultar bloques hijos.
+  - Indent/Outdent: Tab para indentar (meter como hijo del bloque anterior), Shift+Tab para outdentar.
+  - Renderizado jerárquico: `build_children_map()` + `flatten_blocks()` para árbol con indentación visual por `depth`.
+  - `PageEditorState.toggle_open_states` para trackear qué toggles están abiertos/cerrados.
+  - `DatabaseView` widget (`src/ui/database_view.rs`): tabla editable con creación/edición/borrado de filas.
+  - Integración en central panel: si la página tiene databases, se muestra DatabaseView + block editor debajo.
+  - Store: `indent_block()`, `outdent_block()`, `update_database_row_cells()`, `delete_database_row()`.
 
 ### In Progress
 - (ninguno)
@@ -43,7 +51,8 @@ Convertir AppMD (formerly Ferrite) — editor Markdown Rust/egui — en un clon 
 - (ninguno)
 
 ## Next Steps
-- Día 6: Nested blocks (toggle, indent/outdent) y/o databases (tablas estilo Notion).
+- Día 7: Page editor: load + save flow mejorado, botón "+" entre bloques, adaptar FerriteApp para page mode.
+- Días siguientes continuar con S2: Editor de Bloques (Renderer avanzado, inline editing, etc.)
 
 ## Key Decisions
 - PageTreePanel se integra en AppMDApp como campo independiente (no reemplaza FileTreePanel; se activa con `show_page_tree`).

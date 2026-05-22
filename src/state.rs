@@ -3459,6 +3459,12 @@ pub struct PageEditorState {
     pub drag_block_id: Option<String>,
     /// Original index of the block being dragged
     pub drag_start_idx: Option<usize>,
+    /// Which toggle blocks are open/expanded (block_id -> is_open)
+    pub toggle_open_states: std::collections::HashMap<String, bool>,
+    /// Whether Tab was pressed (indent request)
+    pub indent_pending: bool,
+    /// Whether Shift+Tab was pressed (outdent request)
+    pub outdent_pending: bool,
 }
 
 impl Default for PageEditorState {
@@ -3471,6 +3477,9 @@ impl Default for PageEditorState {
             slash_menu_block_id: None,
             drag_block_id: None,
             drag_start_idx: None,
+            toggle_open_states: std::collections::HashMap::new(),
+            indent_pending: false,
+            outdent_pending: false,
         }
     }
 }
@@ -3491,6 +3500,15 @@ impl PageEditorState {
         self.buffers.remove(block_id);
     }
 
+    pub fn is_toggle_open(&self, block_id: &str) -> bool {
+        *self.toggle_open_states.get(block_id).unwrap_or(&true)
+    }
+
+    pub fn toggle_toggle(&mut self, block_id: &str) {
+        let current = self.is_toggle_open(block_id);
+        self.toggle_open_states.insert(block_id.to_string(), !current);
+    }
+
     pub fn clear(&mut self) {
         self.buffers.clear();
         self.focused_block_id = None;
@@ -3499,6 +3517,9 @@ impl PageEditorState {
         self.slash_menu_block_id = None;
         self.drag_block_id = None;
         self.drag_start_idx = None;
+        self.toggle_open_states.clear();
+        self.indent_pending = false;
+        self.outdent_pending = false;
     }
 }
 

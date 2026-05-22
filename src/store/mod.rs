@@ -400,6 +400,121 @@ impl SqliteStore {
         Ok(())
     }
 
+    pub fn indent_block(&self, id: &str) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        let block: Block = conn
+            .query_row(
+                "SELECT id, page_id, parent_block_id, block_type, content, props, sort_order, depth, created_at, updated_at
+                 FROM blocks WHERE id = ?1",
+                params![id],
+                |r| {
+                    Ok(Block {
+                        id: r.get(0)?,
+                        page_id: r.get(1)?,
+                        parent_block_id: r.get(2)?,
+                        block_type: r.get(3)?,
+                        content: r.get(4)?,
+                        props: r.get(5)?,
+                        sort_order: r.get(6)?,
+                        depth: r.get(7)?,
+                        created_at: r.get(8)?,
+                        updated_at: r.get(9)?,
+                    })
+                },
+            )?;
+        let prev_sibling: Option<Block> = conn
+            .query_row(
+                "SELECT id, page_id, parent_block_id, block_type, content, props, sort_order, depth, created_at, updated_at
+                 FROM blocks WHERE page_id = ?1 AND parent_block_id IS ?2 AND sort_order < ?3
+                 ORDER BY sort_order DESC LIMIT 1",
+                params![block.page_id, block.parent_block_id, block.sort_order],
+                |r| {
+                    Ok(Block {
+                        id: r.get(0)?,
+                        page_id: r.get(1)?,
+                        parent_block_id: r.get(2)?,
+                        block_type: r.get(3)?,
+                        content: r.get(4)?,
+                        props: r.get(5)?,
+                        sort_order: r.get(6)?,
+                        depth: r.get(7)?,
+                        created_at: r.get(8)?,
+                        updated_at: r.get(9)?,
+                    })
+                },
+            )
+            .ok();
+        if let Some(prev) = prev_sibling {
+            let new_depth = prev.depth + 1;
+            conn.execute(
+                "UPDATE blocks SET parent_block_id = ?1, depth = ?2 WHERE id = ?3",
+                params![prev.id, new_depth, id],
+            )?;
+        }
+        Ok(())
+    }
+
+    pub fn outdent_block(&self, id: &str) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        let block: Block = conn
+            .query_row(
+                "SELECT id, page_id, parent_block_id, block_type, content, props, sort_order, depth, created_at, updated_at
+                 FROM blocks WHERE id = ?1",
+                params![id],
+                |r| {
+                    Ok(Block {
+                        id: r.get(0)?,
+                        page_id: r.get(1)?,
+                        parent_block_id: r.get(2)?,
+                        block_type: r.get(3)?,
+                        content: r.get(4)?,
+                        props: r.get(5)?,
+                        sort_order: r.get(6)?,
+                        depth: r.get(7)?,
+                        created_at: r.get(8)?,
+                        updated_at: r.get(9)?,
+                    })
+                },
+            )?;
+        if let Some(parent_id) = block.parent_block_id {
+            let parent: Block = conn
+                .query_row(
+                    "SELECT id, page_id, parent_block_id, block_type, content, props, sort_order, depth, created_at, updated_at
+                     FROM blocks WHERE id = ?1",
+                    params![parent_id],
+                    |r| {
+                        Ok(Block {
+                            id: r.get(0)?,
+                            page_id: r.get(1)?,
+                            parent_block_id: r.get(2)?,
+                            block_type: r.get(3)?,
+                            content: r.get(4)?,
+                            props: r.get(5)?,
+                            sort_order: r.get(6)?,
+                            depth: r.get(7)?,
+                            created_at: r.get(8)?,
+                            updated_at: r.get(9)?,
+                        })
+                    },
+                )?;
+            let new_depth = parent.depth;
+            conn.execute(
+                "UPDATE blocks SET parent_block_id = ?1, depth = ?2 WHERE id = ?3",
+                params![parent.parent_block_id, new_depth, id],
+            )?;
+        }
+        Ok(())
+    }
+
+    pub fn update_block_parent(&self, id: &str, parent_id: Option<&str>, depth: i32) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE blocks SET parent_block_id = ?1, depth = ?2 WHERE id = ?3",
+            params![parent_id, depth, id],
+        )?;
+        Ok(())
+    }
+
     // ── Databases ──
 
     pub fn create_database(&self, page_id: &str, title: &str, columns: &str) -> SqlResult<String> {
@@ -486,6 +601,21 @@ impl SqliteStore {
             })
         })?;
         rows.collect()
+    }
+
+    pub fn update_database_row_cells(&self, id: &str, cells: &str) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE database_rows SET cells = ?1 WHERE id = ?2",
+            params![cells, id],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_database_row(&self, id: &str) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM database_rows WHERE id = ?1", params![id])?;
+        Ok(())
     }
 
     // ── Database Views ──

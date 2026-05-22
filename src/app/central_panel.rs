@@ -572,6 +572,12 @@ impl AppMDApp {
             } else if self.state.show_page_tree && self.state.current_page_id.is_some() {
                 let page_id = self.state.current_page_id.clone().unwrap();
                 if let Some(store) = self.state.page_store.as_ref() {
+                    let dbs = store.get_databases(&page_id).unwrap_or_default();
+                    if !dbs.is_empty() {
+                        self.database_view.show(ui, store, &page_id, is_dark);
+                        ui.separator();
+                        ui.add_space(8.0);
+                    }
                     let actions = self.page_editor.show(
                         ui,
                         store,

@@ -14,6 +14,9 @@ pub struct BlockEditorOutput {
     pub show_slash_menu: bool,
     pub hovered: bool,
     pub drag_started: bool,
+    pub toggle_toggled: bool,
+    pub indent_requested: bool,
+    pub outdent_requested: bool,
 }
 
 pub fn render_block(
@@ -24,6 +27,7 @@ pub fn render_block(
     index: usize,
     is_focused: bool,
     is_dark: bool,
+    is_toggle_open: bool,
 ) -> BlockEditorOutput {
     fn render_drag_handle(ui: &mut egui::Ui, is_dark: bool, index: usize) -> bool {
         let drag_color = if is_dark {
@@ -65,6 +69,9 @@ pub fn render_block(
         show_slash_menu: false,
         hovered: false,
         drag_started: false,
+        toggle_toggled: false,
+        indent_requested: false,
+        outdent_requested: false,
     };
 
     let accent = if is_dark {
@@ -152,7 +159,15 @@ pub fn render_block(
                         }
                     }
                     BlockType::Toggle => {
-                        ui.label("  \u{25B6}  ");
+                        let arrow = if is_toggle_open { "\u{25BC}" } else { "\u{25B6}" };
+                        let arrow_resp = ui.add(
+                            egui::Button::new(arrow)
+                                .frame(false)
+                                .min_size(egui::vec2(20.0, 20.0)),
+                        );
+                        if arrow_resp.clicked() {
+                            output.toggle_toggled = true;
+                        }
                         let response = ui.add_sized(
                             ui.available_size(),
                             egui::TextEdit::multiline(text)
